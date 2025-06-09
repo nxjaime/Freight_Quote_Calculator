@@ -223,6 +223,41 @@
     <script>
         let highlightedData = "";
         let currentFuelProgram = "";
+        let db;
+
+        function initDatabase() {
+            const request = indexedDB.open('FreightQuotes', 1);
+
+            request.onerror = function(event) {
+                console.error('Database error:', event.target.error);
+            };
+
+            request.onsuccess = function(event) {
+                db = event.target.result;
+            };
+
+            request.onupgradeneeded = function(event) {
+                db = event.target.result;
+                if (!db.objectStoreNames.contains('quotes')) {
+                    db.createObjectStore('quotes', { keyPath: 'id', autoIncrement: true });
+                }
+            };
+        }
+
+        function saveQuoteToDB(data) {
+            if (!db) {
+                console.warn('Database not initialized');
+                return;
+            }
+            const tx = db.transaction('quotes', 'readwrite');
+            tx.objectStore('quotes').add(data);
+            tx.oncomplete = function() {
+                console.log('Quote saved');
+            };
+            tx.onerror = function(event) {
+                console.error('Failed to save quote:', event.target.error);
+            };
+        }
 
         function generateProfitMarginOptions() {
             const profitMarginSelect = document.getElementById('profitMargin');
@@ -237,6 +272,7 @@
 
         window.onload = function() {
             generateProfitMarginOptions();
+            initDatabase();
         };
 
         function copyToClipboard() {
@@ -418,6 +454,29 @@ Trailer Adder Total: $${trailerAdder.toFixed(2)}`;
                 highlightedData += `
 
 This quote is valid for 7 days from issuance and subject to our standard Terms and Conditions, available upon request. Rates provided exclude detention, layovers, taxes, or additional services unless specifically indicated. Shipments must comply with stated weights, dimensions, and standard loading/unloading procedures; additional charges may apply for non-standard conditions or unforeseen circumstances. Acceptance of this quotation implies acknowledgment and acceptance of all conditions stated herein.`;
+
+                const quoteRecord = {
+                    timestamp: new Date().toISOString(),
+                    customer,
+                    startZip,
+                    endZip,
+                    commodity,
+                    fuelProgram,
+                    lineType,
+                    tripType,
+                    loadType,
+                    distance: parseFloat(distance.toFixed(2)),
+                    fuelPrice: fuelPriceNumber,
+                    finalQuote: parseFloat(finalQuote.toFixed(2)),
+                    costPerMile: parseFloat(costPerMile.toFixed(2)),
+                    tollCharges,
+                    miscCharges,
+                    trailerType,
+                    numTrailers,
+                    costPerTrailer,
+                    trailerAdder: parseFloat(trailerAdder.toFixed(2))
+                };
+                saveQuoteToDB(quoteRecord);
 
             } catch (error) {
                 console.error("Error calculating quote:", error);
