@@ -210,6 +210,14 @@
             <label for="costPerTrailer">Cost Per Trailer ($):</label>
             <input type="text" id="costPerTrailer" placeholder="Enter cost per trailer">
 
+            <hr>
+            <label for="githubRepo">GitHub Repo (owner/repo):</label>
+            <input type="text" id="githubRepo" placeholder="user/repo">
+
+            <label for="githubToken">GitHub Token:</label>
+            <input type="text" id="githubToken" placeholder="Personal Access Token">
+            <button type="button" onclick="storeGitHubSettings()">Save GitHub Settings</button>
+
             <button onclick="calculateQuote()">Calculate Quote</button>
         </div>
         <div class="output-container">
@@ -259,6 +267,80 @@
             };
         }
 
+        const githubConfig = {
+            repo: '',
+            branch: 'gh-pages',
+            file: 'quotes.json',
+            token: ''
+        };
+
+        function loadGitHubSettings() {
+            githubConfig.repo = localStorage.getItem('githubRepo') || '';
+            githubConfig.token = localStorage.getItem('githubToken') || '';
+            const repoInput = document.getElementById('githubRepo');
+            const tokenInput = document.getElementById('githubToken');
+            if (repoInput) repoInput.value = githubConfig.repo;
+            if (tokenInput) tokenInput.value = githubConfig.token;
+        }
+
+        function storeGitHubSettings() {
+            githubConfig.repo = document.getElementById('githubRepo').value;
+            githubConfig.token = document.getElementById('githubToken').value;
+            localStorage.setItem('githubRepo', githubConfig.repo);
+            localStorage.setItem('githubToken', githubConfig.token);
+            alert('GitHub settings saved locally');
+        }
+
+        async function saveQuoteToGitHub(record) {
+            if (!githubConfig.repo || !githubConfig.token) {
+                console.log('GitHub settings missing, skipping GitHub save');
+                return;
+            }
+            const parts = githubConfig.repo.split('/');
+            if (parts.length !== 2) {
+                console.error('Invalid repo format');
+                return;
+            }
+            const [owner, repo] = parts;
+            const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents/${githubConfig.file}`;
+            let quotes = [];
+            let sha;
+            try {
+                const resp = await fetch(`${apiBase}?ref=${githubConfig.branch}`, {
+                    headers: { Authorization: 'token ' + githubConfig.token }
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    sha = data.sha;
+                    const content = atob(data.content.replace(/\n/g, ''));
+                    quotes = JSON.parse(content);
+                }
+            } catch (err) {
+                console.warn('Could not read existing quotes from GitHub');
+            }
+            quotes.push(record);
+            const newContent = btoa(JSON.stringify(quotes, null, 2));
+            const body = {
+                message: 'Add quote',
+                content: newContent,
+                branch: githubConfig.branch
+            };
+            if (sha) body.sha = sha;
+            const putResp = await fetch(apiBase, {
+                method: 'PUT',
+                headers: {
+                    Authorization: 'token ' + githubConfig.token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            if (!putResp.ok) {
+                console.error('Failed to save quote to GitHub', await putResp.text());
+            } else {
+                console.log('Quote saved to GitHub');
+            }
+        }
+
         function generateProfitMarginOptions() {
             const profitMarginSelect = document.getElementById('profitMargin');
             for (let i = 0; i <= 100; i++) {
@@ -273,6 +355,7 @@
         window.onload = function() {
             generateProfitMarginOptions();
             initDatabase();
+            loadGitHubSettings();
         };
 
         function copyToClipboard() {
@@ -477,6 +560,7 @@ This quote is valid for 7 days from issuance and subject to our standard Terms a
                     trailerAdder: parseFloat(trailerAdder.toFixed(2))
                 };
                 saveQuoteToDB(quoteRecord);
+                saveQuoteToGitHub(quoteRecord);
 
             } catch (error) {
                 console.error("Error calculating quote:", error);
